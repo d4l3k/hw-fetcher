@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/headzoo/surf"
+	"github.com/pkg/errors"
 )
 
 const cs304URL = "http://www.ugrad.cs.ubc.ca/~cs304/2016W1/schedule.html"
@@ -29,7 +33,12 @@ func fetchCS311() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return goquery.OuterHtml(doc.Find("table[rules]"))
+
+	dom := doc.Find("table[rules]")
+	if err := makeAbsolute(dom, cs311URL); err != nil {
+		return "", err
+	}
+	return goquery.OuterHtml(dom)
 }
 
 const piazzaLoginURL = `https://piazza.com/account/login`
@@ -42,9 +51,16 @@ func fetchCS313() (string, error) {
 	}
 
 	// Log in to the site.
-	fm, _ := bow.Form("form#login-form")
-	fm.Input("email", *piazzaUser)
-	fm.Input("password", *piazzaPass)
+	fm, err := bow.Form("form#login-form")
+	if err != nil {
+		return "", err
+	}
+	if err := fm.Input("email", *piazzaUser); err != nil {
+		return "", err
+	}
+	if err := fm.Input("password", *piazzaPass); err != nil {
+		return "", err
+	}
 	if err := fm.Submit(); err != nil {
 		return "", err
 	}
@@ -105,13 +121,103 @@ func fetchCS313() (string, error) {
 <td>%s</td>
 <td>%s</td>`, resource.Content, resource.Subject, resource.Created, resource.Config.Date)
 	}
-	html += `</tbody></body>`
+	html += `</tbody></table>`
 	return html, nil
 }
 
-var port = flag.Int("port", 80, "the port to listen on")
-var piazzaUser = flag.String("piazzauser", "", "piazza username")
-var piazzaPass = flag.String("piazzapass", "", "piazza password")
+const cs322URL = "https://connect.ubc.ca/webapps/blackboard/content/listContent.jsp?course_id=_82806_1&content_id=_3510707_1"
+
+func fetchCS322() (string, error) {
+	bow := surf.NewBrowser()
+	if err := bow.Open(cs322URL); err != nil {
+		return "", err
+	}
+
+	// Follow redirects
+	redirectLink := bow.Find("a").AttrOr("href", "")
+	if err := bow.Open(redirectLink); err != nil {
+		return "", err
+	}
+	redirectLink = strings.Split(strings.Split(bow.Find("noscript").Text(), "href=\"")[1], "\"")[0]
+	if err := bow.Open(redirectLink); err != nil {
+		return "", err
+	}
+	log.Printf("third %q\n%q\n%q", bow.Title(), bow.Url(), redirectLink)
+
+	{
+		// Log in to the site.
+		fm, err := bow.Form("form")
+		if err != nil {
+			return "", err
+		}
+
+		if err := fm.Input("username", *cwlUser); err != nil {
+			if err := fm.Input("j_username", *cwlUser); err != nil {
+				return "", errors.Wrap(err, "no username or j_username elem")
+			}
+		}
+		if err := fm.Input("password", *cwlPass); err != nil {
+			if err := fm.Input("j_password", *cwlPass); err != nil {
+				return "", errors.Wrap(err, "no password or j_password elem")
+			}
+		}
+		if err := fm.Submit(); err != nil {
+			return "", err
+		}
+	}
+	{
+		// SAML submit
+		fm, err := bow.Form("form")
+		if err != nil {
+			return "", err
+		}
+		if err := fm.Submit(); err != nil {
+			return "", err
+		}
+	}
+
+	log.Printf("submit %q\n%q", bow.Title(), bow.Url())
+	log.Println(bow.Dom().Html())
+	if err := bow.Open(cs322URL); err != nil {
+		return "", err
+	}
+	log.Printf("login %q\n%q", bow.Title(), bow.Url())
+
+	dom := bow.Find("ul#content_listContainer")
+	dom.Find("img").Remove()
+	if err := makeAbsolute(dom, cs322URL); err != nil {
+		return "", err
+	}
+	return goquery.OuterHtml(dom)
+}
+
+func makeAbsolute(sel *goquery.Selection, basePath string) error {
+	base, err := url.Parse(basePath)
+	if err != nil {
+		return err
+	}
+	sel.Find("a").Each(func(_ int, s *goquery.Selection) {
+		href, ok := s.Attr("href")
+		if !ok {
+			return
+		}
+		parsed, err := url.Parse(href)
+		if err != nil {
+			log.Printf("err parsing href %q: %s", href, err)
+			return
+		}
+		s.SetAttr("href", base.ResolveReference(parsed).String())
+	})
+	return nil
+}
+
+var (
+	port       = flag.Int("port", 80, "the port to listen on")
+	piazzaUser = flag.String("piazzauser", "", "piazza username")
+	piazzaPass = flag.String("piazzapass", "", "piazza password")
+	cwlUser    = flag.String("cwluser", "", "cwl username")
+	cwlPass    = flag.String("cwlpass", "", "cwl password")
+)
 
 func main() {
 	flag.Parse()
@@ -123,19 +229,32 @@ func main() {
 		funcs := []struct {
 			title string
 			fetch func() (string, error)
+			url   string
 		}{
-			{"cs304", fetchCS304},
-			{"cs311", fetchCS311},
-			{"cs313", fetchCS313},
+			{"cs304", fetchCS304, "http://www.ugrad.cs.ubc.ca/~cs304/2016W1/"},
+			{"cs311", fetchCS311, "http://www.ugrad.cs.ubc.ca/~cs311/2016W1/"},
+			{"cs313", fetchCS313, "https://piazza.com/class/isrvn2xyq3t69a"},
+			{"cs322", fetchCS322, "https://connect.ubc.ca/webapps/blackboard/execute/content/blankPage?cmd=view&content_id=_3755785_1&course_id=_82806_1"},
 		}
-
-		for _, f := range funcs {
-			fmt.Fprintf(w, "<h2>%s</h2>", f.title)
-			body, err := f.fetch()
-			if err != nil {
-				fmt.Fprintf(w, "<p>Error: %s</p>", err)
-			}
-			w.Write([]byte(body))
+		resps := make([]bytes.Buffer, len(funcs))
+		var respsWG sync.WaitGroup
+		for i, f := range funcs {
+			respsWG.Add(1)
+			f := f
+			w := &resps[i]
+			go func() {
+				fmt.Fprintf(w, "<h2><a href=\"%s\">%s</a></h2>", f.url, f.title)
+				body, err := f.fetch()
+				if err != nil {
+					fmt.Fprintf(w, "<p>Error: %s</p>", err)
+				}
+				w.Write([]byte(body))
+				respsWG.Done()
+			}()
+		}
+		respsWG.Wait()
+		for _, resp := range resps {
+			resp.WriteTo(w)
 		}
 	})
 
