@@ -109,6 +109,7 @@ func fetchCS313() (string, error) {
 	return html, nil
 }
 
+var port = flag.Int("port", 80, "the port to listen on")
 var piazzaUser = flag.String("piazzauser", "", "piazza username")
 var piazzaPass = flag.String("piazzapass", "", "piazza password")
 
@@ -139,7 +140,7 @@ func main() {
 	})
 
 	log.Println("Running...")
-	log.Fatal(http.ListenAndServe(":80", nil))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
 }
 
 const solarizedDark = `<style>
@@ -327,7 +328,7 @@ table {width: 100% !important;}
 	 input,
 	 textarea,
 	 button {
-		 border-color: #586e75 !important;
+			 border-color: #586e75 !important;
 		 border-width: 1px !important;
 	 }
 
