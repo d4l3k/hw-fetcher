@@ -23,7 +23,21 @@ func fetchCS304() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return goquery.OuterHtml(doc.Find("table"))
+	dom := doc.Find("table")
+	makeAbsolute(dom, cs340URL)
+	return goquery.OuterHtml(dom)
+}
+
+const cs340URL = "https://www.cs.ubc.ca/~schmidtm/Courses/340-F16/"
+
+func fetchCS340() (string, error) {
+	doc, err := goquery.NewDocument(cs340URL)
+	if err != nil {
+		return "", err
+	}
+	dom := doc.Find("table")
+	makeAbsolute(dom, cs340URL)
+	return goquery.OuterHtml(dom)
 }
 
 const cs311URL = "https://www.ugrad.cs.ubc.ca/~cs311/2016W1/_homework.php"
@@ -208,6 +222,11 @@ func makeAbsolute(sel *goquery.Selection, basePath string) error {
 		}
 		s.SetAttr("href", base.ResolveReference(parsed).String())
 	})
+	tables := sel.Find("table")
+	for _, attr := range []string{"border", "cellspacing", "cellpadding", "width", "rules"} {
+		sel.RemoveAttr(attr)
+		tables.RemoveAttr(attr)
+	}
 	return nil
 }
 
@@ -234,7 +253,8 @@ func main() {
 			{"cs304", fetchCS304, "http://www.ugrad.cs.ubc.ca/~cs304/2016W1/"},
 			{"cs311", fetchCS311, "http://www.ugrad.cs.ubc.ca/~cs311/2016W1/"},
 			{"cs313", fetchCS313, "https://piazza.com/class/isrvn2xyq3t69a"},
-			{"cs322", fetchCS322, "https://connect.ubc.ca/webapps/blackboard/execute/content/blankPage?cmd=view&content_id=_3755785_1&course_id=_82806_1"},
+			//{"cs322", fetchCS322, "https://connect.ubc.ca/webapps/blackboard/execute/content/blankPage?cmd=view&content_id=_3755785_1&course_id=_82806_1"},
+			{"cs340", fetchCS340, "https://www.cs.ubc.ca/~schmidtm/Courses/340-F16/"},
 		}
 		resps := make([]bytes.Buffer, len(funcs))
 		var respsWG sync.WaitGroup
@@ -243,7 +263,7 @@ func main() {
 			f := f
 			w := &resps[i]
 			go func() {
-				fmt.Fprintf(w, "<h2><a href=\"%s\">%s</a></h2>", f.url, f.title)
+				fmt.Fprintf(w, "<h2>%s <small><a href=\"%s\">Course Page</a></small></h2>", f.title, f.url)
 				body, err := f.fetch()
 				if err != nil {
 					fmt.Fprintf(w, "<p>Error: %s</p>", err)
@@ -262,7 +282,15 @@ func main() {
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
 }
 
-const solarizedDark = `<style>
+const solarizedDark = `<!doctype html>
+<link href="https://fonts.googleapis.com/css?family=Roboto|Roboto+Mono" rel="stylesheet">
+<style>
+th, table, td {
+    text-align: left;
+    border: 1px solid white;
+    border-collapse: collapse;
+    padding: 5px;
+	}
 table {width: 100% !important;}
 /*
  * Drop the below regex, after a comma, just before the opening curly bracket
@@ -357,6 +385,7 @@ table {width: 100% !important;}
 	 /* Popup divs that use visibility: hidden and display: none */
 	 div[style*="display: block"],
 	 div[style*="visibility: visible"] {
+		 font-family: "Roboto", sans-serif;
 		 background-color: #002b36 !important
 	 }
 
@@ -419,6 +448,7 @@ table {width: 100% !important;}
 		 /*-moz-border-radius: 5px !important;*/
 		 -webkit-border-radius: 5px !important;
 		 text-indent: 0 !important;
+		 font-family: "Roboto Mono";
 	 }
 
 	 h1,h2,h3,h4,h5,h6 {background-color: #073642 !important}
