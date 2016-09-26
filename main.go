@@ -16,6 +16,26 @@ import (
 	"github.com/pkg/errors"
 )
 
+type Assignment struct {
+	Name, Comment string
+	Due, Late     string
+}
+
+const handinURL = "https://www.ugrad.cs.ubc.ca/~q7w9a/handin.cgi"
+
+func fetchHandin() (map[string][]Assignment, error) {
+	resp, err := http.Get(handinURL)
+	m := make(map[string][]Assignment)
+	if err != nil {
+		return m, err
+	}
+	defer resp.Body.Close()
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		return m, err
+	}
+	return m, nil
+}
+
 const cs304URL = "http://www.ugrad.cs.ubc.ca/~cs304/2016W1/schedule.html"
 
 func fetchCS304() (string, error) {
@@ -258,15 +278,40 @@ func main() {
 		}
 		resps := make([]bytes.Buffer, len(funcs))
 		var respsWG sync.WaitGroup
+		handin, err := fetchHandin()
+		if err != nil {
+			fmt.Fprintf(w, "<p>Handin Error: %s</p>", err)
+		}
 		for i, f := range funcs {
 			respsWG.Add(1)
 			f := f
 			w := &resps[i]
 			go func() {
-				fmt.Fprintf(w, "<h2>%s <small><a href=\"%s\">Course Page</a></small></h2>", f.title, f.url)
+				fmt.Fprintf(w, "<h2>%s <small><a href=\"%s\">Course Page</a></small></h2><h3>Assignments from Course Page</h3>", f.title, f.url)
 				body, err := f.fetch()
 				if err != nil {
 					fmt.Fprintf(w, "<p>Error: %s</p>", err)
+				}
+				if assns, ok := handin[f.title]; ok {
+					html := `<h3>Handin</h3><table>
+<thead>
+<tr>
+<th>Assignment</th>
+<th>Due</th>
+<th>Late</th>
+<th>Comment</th>
+</tr>
+</thead>
+<tbody>`
+					for _, resource := range assns {
+						html += fmt.Sprintf(`<tr>
+<td>%s</td>
+<td>%s</td>
+<td>%s</td>
+<td>%s</td>`, resource.Name, resource.Due, resource.Late, resource.Comment)
+					}
+					html += `</tbody></table>`
+					body += html
 				}
 				w.Write([]byte(body))
 				respsWG.Done()
