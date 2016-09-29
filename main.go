@@ -279,10 +279,17 @@ func main() {
 		}
 		resps := make([]bytes.Buffer, len(funcs))
 		var respsWG sync.WaitGroup
-		handin, err := fetchHandin()
-		if err != nil {
-			fmt.Fprintf(w, "<p>Handin Error: %s</p>", err)
-		}
+		var handin map[string][]Assignment
+		var handinWG sync.WaitGroup
+		handinWG.Add(1)
+		go func() {
+			var err error
+			handin, err = fetchHandin()
+			if err != nil {
+				fmt.Fprintf(w, "<p>Handin Error: %s</p>", err)
+			}
+			handinWG.Done()
+		}()
 		for i, f := range funcs {
 			respsWG.Add(1)
 			f := f
@@ -293,6 +300,7 @@ func main() {
 				if err != nil {
 					fmt.Fprintf(w, "<p>Error: %s</p>", err)
 				}
+				handinWG.Wait()
 				if assns, ok := handin[f.title]; ok {
 					html := `<h3>Handin</h3><table>
 <thead>
