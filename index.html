@@ -1,0 +1,49 @@
+{{template "layout.html"}}
+
+<h1>HW Fetcher</h1>
+
+<p>Select your classes (ctrl-click for multiple)</p>
+<select multiple>
+  {{range .}}
+  <option>{{.}}</option>
+  {{end}}
+</select>
+<p>
+  <button>Show</button>
+</p>
+<noscript>
+	<p>
+		The above select requires JS. You can also append the classes to the urls. Ex: /cs100,cs221
+	</p>
+</noscript>
+
+<h2>Contributing</h2>
+<p>HW Fetcher fetches handin information and other class information from the
+course website. If you want to add more information, please send a PR on GitHub.
+</p>
+<p>
+<a href="https://github.com/d4l3k/hw-fetcher">https://github.com/d4l3k/hw-fetcher</a>
+
+<script>
+// From https://stackoverflow.com/questions/5866169/getting-all-selected-values-of-a-multiple-select-box-when-clicking-on-a-button-u
+// Return an array of the selected opion values
+// select is an HTML select element
+function getSelectValues(select) {
+  var result = [];
+  var options = select && select.options;
+  var opt;
+
+  for (var i=0, iLen=options.length; i<iLen; i++) {
+    opt = options[i];
+
+    if (opt.selected) {
+      result.push(opt.value || opt.text);
+    }
+  }
+  return result;
+}
+
+document.querySelector("button").addEventListener("click", () => {
+  window.location.pathname += getSelectValues(document.querySelector("select")).join(",");
+});
+</script>

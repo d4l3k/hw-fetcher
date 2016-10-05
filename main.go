@@ -1,14 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
+	"sort"
 	"strings"
 	"sync"
 
@@ -20,6 +22,14 @@ import (
 type Assignment struct {
 	Name, Comment string
 	Due, Late     string
+}
+
+type course struct {
+	Course     string
+	CourseURL  string
+	CoursePage template.HTML
+	Handin     []Assignment
+	Errors     []error
 }
 
 const handinURL = "https://www.ugrad.cs.ubc.ca/~q7w9a/handin.cgi"
@@ -35,6 +45,22 @@ func fetchHandin() (map[string][]Assignment, error) {
 		return m, err
 	}
 	return m, nil
+}
+
+func getClasses() ([]string, error) {
+	m, err := fetchHandin()
+	if err != nil {
+		return nil, err
+	}
+	for courseCode := range classFuncs {
+		m[courseCode] = nil
+	}
+	var classes []string
+	for c := range m {
+		classes = append(classes, c)
+	}
+	sort.Strings(classes)
+	return classes, nil
 }
 
 const cs304URL = "http://www.ugrad.cs.ubc.ca/~cs304/2016W1/schedule.html"
@@ -259,25 +285,43 @@ var (
 	cwlPass    = flag.String("cwlpass", "", "cwl password")
 )
 
+var classFuncs = map[string]struct {
+	fetch func() (string, error)
+	url   string
+}{
+	"cs304": {fetchCS304, "https://www.ugrad.cs.ubc.ca/~cs304/2016W1/"},
+	"cs311": {fetchCS311, "https://www.ugrad.cs.ubc.ca/~cs311/2016W1/"},
+	"cs313": {fetchCS313, "https://piazza.com/class/isrvn2xyq3t69a"},
+	"cs322": {fetchCS322, "https://connect.ubc.ca/webapps/blackboard/execute/content/blankPage?cmd=view&content_id=_3755785_1&course_id=_82806_1"},
+	"cs340": {fetchCS340, "https://www.cs.ubc.ca/~schmidtm/Courses/340-F16/"},
+}
+
+var tmpls = template.Must(template.ParseFiles("index.html", "layout.html", "classes.html"))
+
 func main() {
 	flag.Parse()
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(style))
-		w.Write([]byte("<h1>Class Lists</h1>"))
+	fs := http.FileServer(http.Dir("static"))
+	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
-		funcs := []struct {
-			title string
-			fetch func() (string, error)
-			url   string
-		}{
-			{"cs304", fetchCS304, "http://www.ugrad.cs.ubc.ca/~cs304/2016W1/"},
-			{"cs311", fetchCS311, "http://www.ugrad.cs.ubc.ca/~cs311/2016W1/"},
-			{"cs313", fetchCS313, "https://piazza.com/class/isrvn2xyq3t69a"},
-			//{"cs322", fetchCS322, "https://connect.ubc.ca/webapps/blackboard/execute/content/blankPage?cmd=view&content_id=_3755785_1&course_id=_82806_1"},
-			{"cs340", fetchCS340, "https://www.cs.ubc.ca/~schmidtm/Courses/340-F16/"},
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		base := path.Base(r.URL.Path)
+		if len(base) == 0 || base == "/" {
+			classes, err := getClasses()
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+			if err := tmpls.Lookup("index.html").Execute(w, classes); err != nil {
+				http.Error(w, err.Error(), 500)
+			}
+			return
 		}
-		resps := make([]bytes.Buffer, len(funcs))
+
+		dispCourses := strings.Split(strings.ToLower(base), ",")
+		sort.Strings(dispCourses)
+
+		courses := make([]course, len(dispCourses))
 		var respsWG sync.WaitGroup
 		var handin map[string][]Assignment
 		var handinWG sync.WaitGroup
@@ -290,45 +334,33 @@ func main() {
 			}
 			handinWG.Done()
 		}()
-		for i, f := range funcs {
+		for i, courseTitle := range dispCourses {
+			courseTitle := courseTitle
 			respsWG.Add(1)
-			f := f
-			w := &resps[i]
+			c := &courses[i]
+			c.Course = courseTitle
+			f, ok := classFuncs[courseTitle]
 			go func() {
-				fmt.Fprintf(w, "<h2>%s <small><a href=\"%s\">Course Page</a></small></h2><h3>Assignments from Course Page</h3>", f.title, f.url)
-				body, err := f.fetch()
-				if err != nil {
-					fmt.Fprintf(w, "<p>Error: %s</p>", err)
+				if ok {
+					c.CourseURL = f.url
+					body, err := f.fetch()
+					if err != nil {
+						c.Errors = append(c.Errors, err)
+					}
+					c.CoursePage = template.HTML(body)
 				}
 				handinWG.Wait()
-				if assns, ok := handin[f.title]; ok {
-					html := `<h3>Handin</h3><table>
-<thead>
-<tr>
-<th>Assignment</th>
-<th>Due</th>
-<th>Late</th>
-<th>Comment</th>
-</tr>
-</thead>
-<tbody>`
+				if assns, ok := handin[courseTitle]; ok {
 					for _, resource := range assns {
-						html += fmt.Sprintf(`<tr>
-<td>%s</td>
-<td>%s</td>
-<td>%s</td>
-<td>%s</td>`, resource.Name, resource.Due, resource.Late, resource.Comment)
+						c.Handin = append(c.Handin, resource)
 					}
-					html += `</tbody></table>`
-					body += html
 				}
-				w.Write([]byte(body))
 				respsWG.Done()
 			}()
 		}
 		respsWG.Wait()
-		for _, resp := range resps {
-			resp.WriteTo(w)
+		if err := tmpls.Lookup("classes.html").Execute(w, courses); err != nil {
+			http.Error(w, err.Error(), 500)
 		}
 	})
 

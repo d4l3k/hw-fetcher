@@ -1,0 +1,45 @@
+{{template "layout.html"}}
+
+<h1>Class Lists</h1>
+
+{{range .}}
+  <h2>
+    {{.Course}}
+    {{if .CourseURL}}
+      <small><a href="{{.CourseURL}}">Course Page</a></small>
+    {{end}}
+  </h2>
+
+  {{range .Errors}}
+    <p>Error: {{.}}</p>
+  {{end}}
+
+  {{if .CoursePage}}
+    <h3>Assignments from Course Page</h3>
+    {{.CoursePage}}
+  {{end}}
+
+  {{if .Handin}}
+    <h3>Handin</h3>
+    <table>
+      <thead>
+	<tr>
+	  <th>Assignment</th>
+	  <th>Due</th>
+	  <th>Late</th>
+	  <th>Comment</th>
+	</tr>
+      </thead>
+      <tbody>
+      {{range .Handin}}
+	<tr>
+	  <td>{{.Name}}</td>
+	  <td>{{.Due}}</td>
+	  <td>{{.Late}}</td>
+	  <td>{{.Comment}}</td>
+	</tr>
+      {{end}}
+      </tbody>
+    </table>
+  {{end}}
+{{end}}
