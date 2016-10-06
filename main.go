@@ -16,6 +16,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/headzoo/surf"
+	"github.com/microcosm-cc/bluemonday"
 	"github.com/pkg/errors"
 )
 
@@ -304,6 +305,10 @@ func main() {
 	fs := http.FileServer(http.Dir("static"))
 	http.Handle("/static/", http.StripPrefix("/static/", fs))
 
+	sanitize := bluemonday.UGCPolicy()
+	sanitize.AllowStyling()
+	sanitize.AllowElements("font")
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		base := path.Base(r.URL.Path)
 		if len(base) == 0 || base == "/" {
@@ -347,7 +352,7 @@ func main() {
 					if err != nil {
 						c.Errors = append(c.Errors, err)
 					}
-					c.CoursePage = template.HTML(body)
+					c.CoursePage = template.HTML(sanitize.Sanitize(body))
 				}
 				handinWG.Wait()
 				if assns, ok := handin[courseTitle]; ok {
