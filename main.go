@@ -251,6 +251,28 @@ func fetchCS425() (string, error) {
 	return goquery.OuterHtml(dom)
 }
 
+const cs420URL = "http://www.ugrad.cs.ubc.ca/~cs420/current/"
+
+func fetchCS420() (string, error) {
+	bow := surf.NewBrowser()
+	if err := bow.Open(cs420URL); err != nil {
+		return "", err
+	}
+	var dom *goquery.Selection
+	bow.Find("dt").Each(func(_ int, sel *goquery.Selection) {
+		if strings.Contains(sel.Text(), "Problem Sets:") {
+			dom = sel.Next()
+		}
+	})
+	if dom == nil {
+		return "", errors.New("dom nil")
+	}
+	if err := makeAbsolute(dom, cs420URL); err != nil {
+		return "", err
+	}
+	return dom.Html()
+}
+
 func makeAbsolute(sel *goquery.Selection, basePath string) error {
 	base, err := url.Parse(basePath)
 	if err != nil {
@@ -295,6 +317,9 @@ var classFuncs = map[string]struct {
 	"cs340": {fetchCS340, "https://www.cs.ubc.ca/~schmidtm/Courses/340-F16/"},
 	"cs418": {fetchCS418, "https://www.ugrad.cs.ubc.ca/~cs418/2016-2/"},
 	"cs425": {fetchCS425, cs425URL},
+	// cs420 and cs500 are the same.
+	"cs420": {fetchCS420, cs420URL},
+	"cs500": {fetchCS420, cs420URL},
 }
 
 var tmpls = template.Must(template.ParseFiles("index.html", "layout.html", "classes.html"))
