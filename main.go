@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/PuerkitoBio/goquery"
+	piazza "github.com/d4l3k/piazza-api"
 	"github.com/headzoo/surf"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/pkg/errors"
@@ -103,68 +104,18 @@ func fetchCS311() (string, error) {
 	return goquery.OuterHtml(dom)
 }
 
-const piazzaLoginURL = `https://piazza.com/account/login`
 const cs313URL = "https://piazza.com/ubc.ca/winterterm12016/cpsc313/resources"
 
 func fetchCS313() (string, error) {
-	bow := surf.NewBrowser()
-	if err := bow.Open(piazzaLoginURL); err != nil {
-		return "", err
-	}
-
-	// Log in to the site.
-	fm, err := bow.Form("form#login-form")
+	c, err := piazza.MakeClient(*piazzaUser, *piazzaPass)
 	if err != nil {
 		return "", err
 	}
-	if err := fm.Input("email", *piazzaUser); err != nil {
+	resources, err := c.FetchResources(cs313URL)
+	if err != nil {
 		return "", err
 	}
-	if err := fm.Input("password", *piazzaPass); err != nil {
-		return "", err
-	}
-	if err := fm.Submit(); err != nil {
-		return "", err
-	}
-	if err := bow.Open(cs313URL); err != nil {
-		return "", err
-	}
-	body := ""
-	bow.Find("script").Each(func(_ int, s *goquery.Selection) {
-		text := s.Text()
-		parts := strings.Split(text, "this.resource_data        = ")
-		if len(parts) != 2 {
-			return
-		}
-		body = strings.Split(parts[1], ";\n")[0]
-	})
-	/*
-	   {
-	   	"content":"https://www.facebook.com/notes/facebook-engineering/the-full-stack-part-i/461505383919",
-	   	"subject":"Reading Sep 8: The Full Stack Part 1",
-	   	"created":"2016-09-06T20:32:57Z",
-	   	"id":"isrxno834nx6x2",
-	   	"config":{
-	   		"resource_type":"link",
-	   		"section":"general",
-	   		"date":""
-	   	}
-	   }
-	*/
-	data := []struct {
-		Content string `json:"content"`
-		Subject string `json:"subject"`
-		Created string `json:"created"`
-		ID      string `json:"id"`
-		Config  struct {
-			ResourceType string `json:"resource_type"`
-			Section      string `json:"section"`
-			Date         string `json:"date"`
-		} `json:"config"`
-	}{}
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
-		return "", err
-	}
+
 	html := `<table>
 <thead>
 <tr>
@@ -174,7 +125,7 @@ func fetchCS313() (string, error) {
 </tr>
 </thead>
 <tbody>`
-	for _, resource := range data {
+	for _, resource := range resources {
 		if resource.Config.Section != "homework" {
 			continue
 		}
@@ -253,6 +204,31 @@ func fetchCS322() (string, error) {
 	return goquery.OuterHtml(dom)
 }
 
+const (
+	cs418HWURL              = "https://www.ugrad.cs.ubc.ca/~cs418/2016-2/homework.html"
+	cs418MiniAssignmentsURL = "https://www.ugrad.cs.ubc.ca/~cs418/2016-2/mini.html"
+)
+
+func fetchCS418() (string, error) {
+	bow := surf.NewBrowser()
+	var html string
+	for _, url := range []string{cs418HWURL, cs418MiniAssignmentsURL} {
+		if err := bow.Open(url); err != nil {
+			return "", err
+		}
+		dom := bow.Find(".content .item")
+		if err := makeAbsolute(dom, url); err != nil {
+			return "", err
+		}
+		subhtml, err := goquery.OuterHtml(dom)
+		if err != nil {
+			return "", err
+		}
+		html += subhtml
+	}
+	return html, nil
+}
+
 func makeAbsolute(sel *goquery.Selection, basePath string) error {
 	base, err := url.Parse(basePath)
 	if err != nil {
@@ -295,6 +271,7 @@ var classFuncs = map[string]struct {
 	"cs313": {fetchCS313, "https://piazza.com/class/isrvn2xyq3t69a"},
 	"cs322": {fetchCS322, "https://connect.ubc.ca/webapps/blackboard/execute/content/blankPage?cmd=view&content_id=_3755785_1&course_id=_82806_1"},
 	"cs340": {fetchCS340, "https://www.cs.ubc.ca/~schmidtm/Courses/340-F16/"},
+	"cs418": {fetchCS418, "https://www.ugrad.cs.ubc.ca/~cs418/2016-2/"},
 }
 
 var tmpls = template.Must(template.ParseFiles("index.html", "layout.html", "classes.html"))
