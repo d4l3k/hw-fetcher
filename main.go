@@ -229,6 +229,28 @@ func fetchCS418() (string, error) {
 	return html, nil
 }
 
+const cs425URL = "https://www.cs.ubc.ca/~madooei/cpsc425/"
+
+func fetchCS425() (string, error) {
+	bow := surf.NewBrowser()
+	if err := bow.Open(cs425URL); err != nil {
+		return "", err
+	}
+	var dom *goquery.Selection
+	bow.Find("table").Each(func(_ int, sel *goquery.Selection) {
+		if strings.Contains(sel.Text(), "Assignment") {
+			dom = sel
+		}
+	})
+	if dom == nil {
+		return "", errors.New("dom nil")
+	}
+	if err := makeAbsolute(dom, cs425URL); err != nil {
+		return "", err
+	}
+	return goquery.OuterHtml(dom)
+}
+
 func makeAbsolute(sel *goquery.Selection, basePath string) error {
 	base, err := url.Parse(basePath)
 	if err != nil {
@@ -272,6 +294,7 @@ var classFuncs = map[string]struct {
 	"cs322": {fetchCS322, "https://connect.ubc.ca/webapps/blackboard/execute/content/blankPage?cmd=view&content_id=_3755785_1&course_id=_82806_1"},
 	"cs340": {fetchCS340, "https://www.cs.ubc.ca/~schmidtm/Courses/340-F16/"},
 	"cs418": {fetchCS418, "https://www.ugrad.cs.ubc.ca/~cs418/2016-2/"},
+	"cs425": {fetchCS425, cs425URL},
 }
 
 var tmpls = template.Must(template.ParseFiles("index.html", "layout.html", "classes.html"))
